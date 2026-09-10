@@ -21,6 +21,17 @@ variable "deploy_refs" {
   default     = ["refs/heads/main"]
 }
 
+variable "deploy_environment" {
+  description = <<-EOT
+    GitHub environment the deploy job declares. This matters: once a job sets
+    `environment:`, GitHub's OIDC subject claim becomes
+    repo:<owner>/<repo>:environment:<name> INSTEAD OF the ref form — so a trust
+    policy that only allows refs will reject it.
+  EOT
+  type        = string
+  default     = "production"
+}
+
 variable "github_oidc_thumbprints" {
   description = <<-EOT
     Certificate thumbprints for GitHub's OIDC issuer. AWS no longer validates

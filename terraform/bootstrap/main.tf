@@ -125,12 +125,19 @@ data "aws_iam_policy_document" "ci_assume_role" {
       values   = ["sts.amazonaws.com"]
     }
 
-    # Scoped to specific refs of one repository. Without this condition any
-    # GitHub repository in the world could assume the role.
+    # Scoped to one repository. Without this condition any GitHub repository in
+    # the world could assume the role.
+    #
+    # Both subject forms are permitted because they are not interchangeable: a
+    # job that declares `environment:` gets the environment claim, and one that
+    # does not gets the ref claim. Allowing only refs breaks the deploy job.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [for ref in var.deploy_refs : "repo:${var.github_repository}:ref:${ref}"]
+      values = concat(
+        [for ref in var.deploy_refs : "repo:${var.github_repository}:ref:${ref}"],
+        ["repo:${var.github_repository}:environment:${var.deploy_environment}"],
+      )
     }
   }
 }
