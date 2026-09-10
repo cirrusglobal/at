@@ -82,6 +82,43 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+# Lambda pulls a container image as a service principal, not as the identity
+# that called CreateFunction — so the repository itself must allow it.
+# Without this, creating the function fails with
+#   "Lambda does not have permission to access the ECR image."
+# The console adds this policy silently when you create a container function;
+# the API and Terraform do not.
+data "aws_iam_policy_document" "ecr_lambda_pull" {
+  statement {
+    sid    = "LambdaECRImageRetrievalPolicy"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+
+    actions = [
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+
+    # Confines the grant to Lambda functions in this account.
+    condition {
+      test     = "StringLike"
+      variable = "aws:sourceArn"
+      values = [
+        "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:*",
+      ]
+    }
+  }
+}
+
+resource "aws_ecr_repository_policy" "lambda_pull" {
+  repository = aws_ecr_repository.app.name
+  policy     = data.aws_iam_policy_document.ecr_lambda_pull.json
+}
+
 resource "aws_ecr_lifecycle_policy" "app" {
   repository = aws_ecr_repository.app.name
 
@@ -187,11 +224,25 @@ data "aws_iam_policy_document" "ci" {
       "ecr:BatchCheckLayerAvailability",
       "ecr:BatchGetImage",
       "ecr:CompleteLayerUpload",
-      "ecr:DescribeRepositories",
       "ecr:GetDownloadUrlForLayer",
       "ecr:InitiateLayerUpload",
       "ecr:PutImage",
       "ecr:UploadLayerPart",
+    ]
+    resources = [aws_ecr_repository.app.arn]
+  }
+
+  # The aws_ecr_repository *data source* in the app stack reads image metadata,
+  # not just the repository itself — so DescribeImages is required even though
+  # nothing in that stack manages images.
+  statement {
+    sid    = "EcrRead"
+    effect = "Allow"
+    actions = [
+      "ecr:DescribeRepositories",
+      "ecr:DescribeImages",
+      "ecr:ListImages",
+      "ecr:ListTagsForResource",
     ]
     resources = [aws_ecr_repository.app.arn]
   }

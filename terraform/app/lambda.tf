@@ -40,3 +40,15 @@ resource "aws_lambda_function_url" "api" {
   # brief asks for.
   authorization_type = "NONE"
 }
+
+# authorization_type = "NONE" is necessary but not sufficient: the function
+# still needs a resource-based policy admitting unauthenticated callers, or
+# every request returns 403 Forbidden. The console adds this automatically when
+# you create a Function URL; Terraform does not.
+resource "aws_lambda_permission" "function_url" {
+  statement_id           = "AllowPublicFunctionUrlInvoke"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.api.function_name
+  principal              = "*"
+  function_url_auth_type = "NONE"
+}
