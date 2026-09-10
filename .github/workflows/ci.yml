@@ -1,0 +1,138 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Never let two deploys race for the same Terraform state lock. Not
+# cancel-in-progress: interrupting a running apply is worse than queueing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check app tests
+
+      - name: Format check
+        run: ruff format --check app tests
+
+      # moto intercepts every AWS call, so this needs no credentials and
+      # touches no account.
+      - name: Test
+        run: pytest --cov=app --cov-report=term-missing
+
+  terraform-check:
+    name: terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      - name: Format check
+        run: terraform fmt -check -recursive terraform/
+
+      # -backend=false so validation needs no credentials and no state bucket.
+      - name: Validate bootstrap
+        run: |
+          terraform -chdir=terraform/bootstrap init -backend=false
+          terraform -chdir=terraform/bootstrap validate
+
+      - name: Validate app
+        run: |
+          terraform -chdir=terraform/app init -backend=false
+          terraform -chdir=terraform/app validate
+
+  deploy:
+    name: build & deploy
+    needs: [test, terraform-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      id-token: write # required to request the OIDC token
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Short-lived credentials from GitHub's OIDC provider. No AWS access
+      # keys are stored in this repository.
+      - name: Assume AWS role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+          TAG: ${{ github.sha }}
+        run: |
+          docker build --target lambda \
+            -t "$REGISTRY/$REPOSITORY:$TAG" \
+            -t "$REGISTRY/$REPOSITORY:latest" .
+          docker push "$REGISTRY/$REPOSITORY:$TAG"
+          docker push "$REGISTRY/$REPOSITORY:latest"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.16.1"
+
+      # The bucket name embeds the account id, so it is supplied here rather
+      # than hardcoded in the backend block.
+      - name: Terraform init
+        run: |
+          terraform -chdir=terraform/app init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Terraform apply
+        id: apply
+        run: |
+          terraform -chdir=terraform/app apply -auto-approve \
+            -var="image_tag=${{ github.sha }}"
+          echo "api_url=$(terraform -chdir=terraform/app output -raw api_url)" >> "$GITHUB_OUTPUT"
+
+      # A green apply only proves the resources exist. This proves the image
+      # actually boots and serves traffic.
+      - name: Smoke test
+        run: |
+          URL="${{ steps.apply.outputs.api_url }}"
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error "${URL}health" | grep -q '"ok"'; then
+              echo "healthy"
+              exit 0
+            fi
+            echo "attempt ${attempt} failed, retrying..."
+            sleep 5
+          done
+          echo "health check never passed"
+          exit 1

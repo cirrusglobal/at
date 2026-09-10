@@ -1,0 +1,33 @@
+# secrets / credentials — never commit
+.env
+.aws/
+*.pem
+*.csv
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# terraform
+# .terraform/ holds provider binaries — ~1.3GB. .terraform.lock.hcl is NOT
+# ignored: it pins provider versions and belongs in version control.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/

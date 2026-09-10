@@ -1,0 +1,17 @@
+.venv/
+venv/
+.git/
+.github/
+terraform/
+tests/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.aws/
+.DS_Store
+README.md
+docker-compose.yml
