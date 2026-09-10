@@ -21,6 +21,26 @@ variable "deploy_refs" {
   default     = ["refs/heads/main"]
 }
 
+variable "github_subject_prefixes" {
+  description = <<-EOT
+    Additional OIDC subject prefixes to trust, beyond the plain
+    "repo:<owner>/<repo>" form.
+
+    GitHub may issue ID-qualified ("immutable") subjects shaped like
+    repo:<owner>@<owner_id>/<repo>@<repo_id>, which embed numeric IDs so the
+    claim survives renames and cannot be spoofed by recreating a repository
+    with the same name. Those do NOT match the plain form, and a trust policy
+    without them fails with:
+
+        Not authorized to perform sts:AssumeRoleWithWebIdentity
+
+    Find the value for a repository with:
+        gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
+  EOT
+  type        = list(string)
+  default     = []
+}
+
 variable "deploy_environment" {
   description = <<-EOT
     GitHub environment the deploy job declares. This matters: once a job sets

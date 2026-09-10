@@ -109,6 +109,22 @@ resource "aws_iam_openid_connect_provider" "github" {
   thumbprint_list = var.github_oidc_thumbprints
 }
 
+locals {
+  # Every subject prefix GitHub might present for this repository.
+  subject_prefixes = distinct(
+    concat(["repo:${var.github_repository}"], var.github_subject_prefixes)
+  )
+
+  # Both claim shapes, for each prefix: a job declaring `environment:` gets the
+  # environment claim, one that does not gets the ref claim.
+  allowed_subjects = flatten([
+    for prefix in local.subject_prefixes : concat(
+      [for ref in var.deploy_refs : "${prefix}:ref:${ref}"],
+      ["${prefix}:environment:${var.deploy_environment}"],
+    )
+  ])
+}
+
 data "aws_iam_policy_document" "ci_assume_role" {
   statement {
     effect  = "Allow"
@@ -126,18 +142,12 @@ data "aws_iam_policy_document" "ci_assume_role" {
     }
 
     # Scoped to one repository. Without this condition any GitHub repository in
-    # the world could assume the role.
-    #
-    # Both subject forms are permitted because they are not interchangeable: a
-    # job that declares `environment:` gets the environment claim, and one that
-    # does not gets the ref claim. Allowing only refs breaks the deploy job.
+    # the world could assume the role. See locals.allowed_subjects for why
+    # several shapes are listed.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values = concat(
-        [for ref in var.deploy_refs : "repo:${var.github_repository}:ref:${ref}"],
-        ["repo:${var.github_repository}:environment:${var.deploy_environment}"],
-      )
+      values   = local.allowed_subjects
     }
   }
 }

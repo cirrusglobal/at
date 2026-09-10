@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and fill in for your repository.
+# terraform.tfvars itself is gitignored.
+
+github_repository = "cirrusglobal/at"
+
+# GitHub issues ID-qualified ("immutable") OIDC subjects that embed the numeric
+# owner and repository ids, so the claim survives renames and cannot be spoofed
+# by recreating a repository with the same name. These do not match the plain
+# repo:<owner>/<repo> form, and omitting them makes the deploy job fail with
+# "Not authorized to perform sts:AssumeRoleWithWebIdentity".
+#
+# Read the prefix for your repository with:
+#   gh api /repos/<owner>/<repo>/actions/oidc/customization/sub
+github_subject_prefixes = ["repo:cirrusglobal@302071610/at@1363017176"]
