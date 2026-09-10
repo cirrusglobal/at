@@ -29,26 +29,52 @@ resource "aws_lambda_function" "api" {
   ]
 }
 
-# A Function URL rather than API Gateway: one fewer service, a 15-minute
-# ceiling instead of 29 seconds, and no per-request API Gateway charge.
-resource "aws_lambda_function_url" "api" {
-  function_name = aws_lambda_function.api.function_name
-
-  # NONE means unsigned requests reach the function — the application's bearer
-  # token layer is the auth boundary. AWS_IAM here would require every caller
-  # to SigV4-sign requests, which is incompatible with the OAuth2 flow the
-  # brief asks for.
-  authorization_type = "NONE"
+# An HTTP API rather than a Lambda Function URL.
+#
+# A Function URL would be one fewer service and allow a 15-minute timeout, but
+# in this account public Function URLs return 403 regardless of the function's
+# resource policy — verified with a correct policy, no SCPs, and a freshly
+# recreated URL, while `lambda invoke` on the same function returned 200. An
+# HTTP API is unaffected, and is in any case the more conventional front door.
+#
+# The 29s integration cap that comes with it is not a constraint here:
+# provisioning a VPC with subnets completes in well under 10s.
+resource "aws_apigatewayv2_api" "api" {
+  name          = "${var.project}-api"
+  protocol_type = "HTTP"
 }
 
-# authorization_type = "NONE" is necessary but not sufficient: the function
-# still needs a resource-based policy admitting unauthenticated callers, or
-# every request returns 403 Forbidden. The console adds this automatically when
-# you create a Function URL; Terraform does not.
-resource "aws_lambda_permission" "function_url" {
-  statement_id           = "AllowPublicFunctionUrlInvoke"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.api.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
+resource "aws_apigatewayv2_integration" "api" {
+  api_id                 = aws_apigatewayv2_api.api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.api.invoke_arn
+  payload_format_version = "2.0" # the event shape Mangum expects
+}
+
+# $default catches every method and path, leaving routing to FastAPI rather
+# than duplicating it in the gateway.
+resource "aws_apigatewayv2_route" "default" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.api.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.api.id
+  name        = "$default"
+  auto_deploy = true
+
+  default_route_settings {
+    # Cheap insurance on a public endpoint that provisions billable resources.
+    throttling_burst_limit = 20
+    throttling_rate_limit  = 10
+  }
+}
+
+resource "aws_lambda_permission" "api_gateway" {
+  statement_id  = "AllowInvokeFromApiGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
 }

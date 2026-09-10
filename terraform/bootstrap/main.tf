@@ -125,11 +125,13 @@ resource "aws_ecr_lifecycle_policy" "app" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Keep the 10 most recent images"
+      # Three, not ten: the image is ~400MB, and ten of them would sit well
+      # past the 500MB ECR free tier for no practical rollback benefit.
+      description = "Keep the 3 most recent images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
-        countNumber = 10
+        countNumber = 3
       }
       action = { type = "expire" }
     }]
@@ -259,6 +261,7 @@ data "aws_iam_policy_document" "ci" {
       "lambda:*",
       "dynamodb:*",
       "logs:*",
+      "apigateway:*",
       "iam:GetRole",
       "iam:CreateRole",
       "iam:DeleteRole",
