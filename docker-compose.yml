@@ -1,0 +1,32 @@
+services:
+  api:
+    build:
+      context: .
+      target: local  # the uvicorn stage; CI builds the `lambda` stage instead
+    ports:
+      - "8000:8000"
+    environment:
+      # Local convenience: create the DynamoDB table on first use. In AWS the
+      # table comes from Terraform and this stays false.
+      AUTO_CREATE_TABLE: "true"
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      # Containers see neither ~/.aws/config nor the SSO token cache unless
+      # mounted below, so the profile name has to be passed through too.
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      DYNAMODB_TABLE_NAME: ${DYNAMODB_TABLE_NAME:-networks}
+      DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
+      JWT_SECRET: ${JWT_SECRET:-dev-only-insecure-secret-change-me-before-deploying}
+      DEMO_USERNAME: ${DEMO_USERNAME:-demo}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-demo-password}
+    volumes:
+      # Read-only: lets boto3 resolve the host's SSO session. Nothing sensitive
+      # is baked into the image.
+      - ${HOME}/.aws:/home/app/.aws:ro
+    depends_on:
+      - dynamodb
+
+  dynamodb:
+    image: amazon/dynamodb-local:latest
+    command: ["-jar", "DynamoDBLocal.jar", "-inMemory", "-sharedDb"]
+    ports:
+      - "8001:8000"
