@@ -114,9 +114,16 @@ Actions → Variables) from the outputs:
 | `AWS_REGION` | `eu-central-1` |
 | `TF_STATE_BUCKET` | `terraform output state_bucket` |
 | `ECR_REPOSITORY` | `vpc-api` |
+| `DEPLOY_ENABLED` | `true` — the deploy job is gated on this |
 
 These are variables, not secrets — none of them is confidential, and there are no AWS
 access keys to store anywhere.
+
+> **The deploy job is currently disabled.** The AWS environment this was deployed to has
+> been torn down, so `DEPLOY_ENABLED` is unset and the `build & deploy` job skips. `lint &
+> test` and `terraform validate` still run on every push and pull request — they need no
+> credentials. The job is gated rather than deleted so the full pipeline stays reviewable;
+> re-enable it by recreating the infrastructure and setting the five variables above.
 
 ### 2. Application — by CI, on merge to main
 

@@ -68,7 +68,14 @@ jobs:
   deploy:
     name: build & deploy
     needs: [test, terraform-check]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Gated on DEPLOY_ENABLED rather than deleted, so the pipeline stays
+    # reviewable while no AWS environment exists. To re-enable: recreate the
+    # infrastructure (see README > Deployment), set the four repository
+    # variables below, then set DEPLOY_ENABLED=true.
+    if: >-
+      github.event_name == 'push'
+      && github.ref == 'refs/heads/main'
+      && vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: production
 
